@@ -44,13 +44,30 @@ def main():
     results["submitted poll"]=suite(original,"submitted poll",["./poll"])
     results["submitted Windows missing root"]=suite(original,"submitted missing root",["-run","^TestEqualMissingRoot$","./fs"])
     results["submitted migration tool"]=suite(original,"submitted migration tool",["-run","^$","./assert/cmd/gty-migrate-from-testify"])
-    subprocess.run(["git","apply","--check","-"],cwd=current,input=delta,check=True)
-    subprocess.run(["git","apply","-"],cwd=current,input=delta,check=True)
-    assert git(current,"diff","--binary")==delta
-    for mode,flags in (("normal",[]),("race",["-race"])):
-        results["current root "+mode]=suite(current,"current root "+mode,[*flags,"./..."])
-        results["current generics "+mode]=suite(current/"x/generics","current generics "+mode,[*flags,"./..."])
-    record={"patch_head":PATCH_HEAD,"upstream":UPSTREAM,"patch_sha256":hashlib.sha256(delta).hexdigest(),"version":version,"results":results}
+    # The upstream filesystem poll test uses a fixed relative filename. Give each
+    # full suite a clean checkout, as independent CI jobs would have.
+    clean_race = Path("current-race").resolve()
+    fixture = Path("file-replay").resolve()
+    for tree in (clean_race, fixture):
+        git(current, "worktree", "add", "--detach", str(tree), UPSTREAM)
+    for mode, flags, tree in (("normal", [], current), ("race", ["-race"], clean_race)):
+        subprocess.run(["git","apply","--check","-"],cwd=tree,input=delta,check=True)
+        subprocess.run(["git","apply","-"],cwd=tree,input=delta,check=True)
+        assert git(tree,"diff","--binary")==delta
+        results["current root "+mode]=suite(tree,"current root "+mode,[*flags,"./..."])
+        results["current generics "+mode]=suite(tree/"x/generics","current generics "+mode,[*flags,"./..."])
+
+    leftover = fixture / "poll" / "fakefile"
+    assert not leftover.exists()
+    controls = []
+    for label in ("initial", "repeat"):
+        result = suite(fixture, "upstream fixture "+label, ["-race","-run","^TestWaitOnFile$","./poll"])
+        controls.append({"run": label, "residue": leftover.is_file(), "result": result})
+    if leftover.is_file():
+        leftover.unlink()
+        result = suite(fixture, "upstream fixture after cleanup", ["-race","-run","^TestWaitOnFile$","./poll"])
+        controls.append({"run": "after cleanup", "residue": leftover.is_file(), "result": result})
+    record={"test_fixture_controls":controls,"patch_head":PATCH_HEAD,"upstream":UPSTREAM,"patch_sha256":hashlib.sha256(delta).hexdigest(),"version":version,"results":results}
     Path("verification.json").write_text(json.dumps(record,indent=2)+"\n")
     assert results["submitted poll"]["exit"]==0 and "TestWaitOn_WithCompare" in results["submitted poll"]["named_cases"]
     for key,row in results.items():
