@@ -1,0 +1,46 @@
+name: Verify gotest.tools polling timeout on Windows
+on:
+  push:
+    branches: [verify-poll-timeout-on-windows]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - name: Match the upstream Windows checkout settings
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.symlinks true
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: gotestyourself/gotest.tools
+          ref: refs/pull/296/head
+          path: submitted
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: gotestyourself/gotest.tools
+          ref: 749748e6b35eb63efeb24bac7ffd48331c818d62
+          path: current
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: 1.27.1
+          cache: false
+      - run: python .github/diagnostics/verify-poll-timeout.py
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-verification
+          path: verification.json
+          if-no-files-found: error
